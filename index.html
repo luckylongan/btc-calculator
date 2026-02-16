@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>比特幣合約計算機 (BTC Futures Calculator)</title>
+    <!-- 引入 Tailwind CSS 進行快速樣式設計 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        binance: {
+                            yellow: '#FCD535',
+                            bg: '#1E2329',
+                            card: '#2B3139',
+                            green: '#0ECB81',
+                            red: '#F6465D',
+                            text: '#EAECEF',
+                            subtext: '#848E9C'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+        /* 自定義滑桿樣式 */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #FCD535;
+            cursor: pointer;
+            margin-top: -8px;
+            box-shadow: 0 0 10px rgba(252, 213, 53, 0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #474D57;
+            border-radius: 2px;
+        }
+        /* 隱藏數字輸入框的箭頭 */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        .mode-btn-active {
+            background-color: #474D57;
+            color: #FCD535;
+            border: 1px solid #FCD535;
+        }
+        .mode-btn-inactive {
+            background-color: transparent;
+            color: #848E9C;
+            border: 1px solid transparent;
+        }
+        /* Radio Button 自定義 */
+        .radio-label input:checked + span {
+            color: #FCD535;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body class="bg-binance-bg text-binance-text min-h-screen p-4 flex justify-center items-start">
+
+    <div class="max-w-md w-full space-y-4">
+        
+        <!-- 標題區 -->
+        <header class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-binance-yellow">BTC 合約計算機</h1>
+            <p class="text-sm text-binance-subtext mt-1">精準計算 (含手續費/全倉模式)</p>
+        </header>
+
+        <!-- 主控制面板 -->
+        <div class="bg-binance-card p-6 rounded-xl shadow-lg border border-gray-700">
+            
+            <!-- 做多/做空 切換 -->
+            <div class="flex bg-gray-700 rounded-lg p-1 mb-4">
+                <button onclick="setDirection('long')" id="btn-long" class="flex-1 py-2 rounded-md text-sm font-bold transition-all duration-200 bg-binance-green text-white shadow-md">
+                    做多 (Long)
+                </button>
+                <button onclick="setDirection('short')" id="btn-short" class="flex-1 py-2 rounded-md text-sm font-bold transition-all duration-200 text-binance-subtext hover:text-white">
+                    做空 (Short)
+                </button>
+            </div>
+
+            <!-- 倉位模式切換 -->
+            <div class="flex items-center justify-between mb-4 bg-binance-bg p-2 rounded-lg border border-gray-700">
+                <span class="text-xs text-binance-subtext ml-2">倉位模式:</span>
+                <div class="flex space-x-2">
+                    <button onclick="setMode('isolated')" id="btn-isolated" class="px-3 py-1 text-xs rounded mode-btn-active transition-all">
+                        逐倉 (Isolated)
+                    </button>
+                    <button onclick="setMode('cross')" id="btn-cross" class="px-3 py-1 text-xs rounded mode-btn-inactive transition-all">
+                        全倉 (Cross)
+                    </button>
+                </div>
+            </div>
+
+            <!-- 槓桿設定 -->
+            <div class="mb-5">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="text-sm text-binance-subtext">槓桿倍數 (Leverage)</label>
+                    <span id="leverage-display" class="text-binance-yellow font-bold text-xl">20x</span>
+                </div>
+                <input type="range" id="leverage" min="1" max="150" value="20" class="w-full mb-2" oninput="updateCalculation()">
+                <div class="flex justify-between text-xs text-gray-500">
+                    <span>1x</span>
+                    <span>50x</span>
+                    <span>150x</span>
+                </div>
+            </div>
+
+            <!-- 輸入模式選擇 (新增) -->
+            <div class="flex items-center space-x-4 mb-3 text-xs justify-end">
+                <label class="radio-label flex items-center space-x-1 cursor-pointer">
+                    <input type="radio" name="calcMode" value="margin" checked onchange="setCalcMode('margin')" class="hidden">
+                    <span class="text-gray-500 transition-colors">輸入保證金</span>
+                </label>
+                <div class="w-px h-3 bg-gray-600"></div>
+                <label class="radio-label flex items-center space-x-1 cursor-pointer">
+                    <input type="radio" name="calcMode" value="position" onchange="setCalcMode('position')" class="hidden">
+                    <span class="text-gray-500 transition-colors">輸入倉位價值</span>
+                </label>
+            </div>
+
+            <!-- 價格與資金輸入 -->
+            <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-xs text-binance-subtext mb-1">入場價格 (USDT)</label>
+                    <input type="number" id="entry-price" placeholder="例如 65000" class="w-full bg-binance-bg border border-gray-600 rounded p-3 text-white focus:outline-none focus:border-binance-yellow transition-colors" oninput="updateCalculation()">
+                </div>
+                
+                <!-- 投入保證金輸入框 (模式 A) -->
+                <div id="input-group-margin">
+                    <label class="block text-xs text-binance-subtext mb-1">投入保證金 (USDT)</label>
+                    <input type="number" id="margin" placeholder="例如 100" class="w-full bg-binance-bg border border-gray-600 rounded p-3 text-white focus:outline-none focus:border-binance-yellow transition-colors" oninput="updateCalculation()">
+                </div>
+
+                <!-- 倉位價值輸入框 (模式 B - 預設隱藏) -->
+                <div id="input-group-position" class="hidden">
+                    <label class="block text-xs text-binance-subtext mb-1">倉位總價值 (USDT)</label>
+                    <input type="number" id="position-input" placeholder="例如 50000" class="w-full bg-binance-bg border border-binance-yellow rounded p-3 text-white focus:outline-none transition-colors" oninput="updateCalculation()">
+                </div>
+                
+                <!-- 錢包總餘額 (僅全倉模式顯示) -->
+                <div id="wallet-balance-container" class="col-span-2 hidden transition-all">
+                    <label class="block text-xs text-binance-yellow mb-1">錢包總餘額 (全倉模式)</label>
+                    <input type="number" id="wallet-balance" placeholder="例如 1000" class="w-full bg-binance-bg border border-binance-yellow rounded p-3 text-white focus:outline-none transition-colors" oninput="updateCalculation()">
+                    <p class="text-[10px] text-gray-500 mt-1">* 強平價格將以錢包總餘額計算</p>
+                </div>
+
+                <!-- 手續費設定 -->
+                <div class="col-span-2 flex items-center bg-binance-bg border border-gray-600 rounded px-3 py-2">
+                    <label class="text-xs text-binance-subtext mr-3 whitespace-nowrap">手續費率 (%)</label>
+                    <input type="number" id="fee-rate" value="0.04" step="0.01" class="w-20 bg-transparent text-white focus:outline-none text-right font-mono" oninput="updateCalculation()">
+                    <span class="text-xs text-gray-500 ml-2">(單邊)</span>
+                </div>
+            </div>
+
+            <!-- 基礎數據顯示 -->
+            <div class="bg-binance-bg rounded-lg p-4 space-y-2 border border-gray-700">
+                <div class="flex justify-between text-sm">
+                    <!-- 這個標籤會根據模式改變：倉位價值 <-> 所需保證金 -->
+                    <span class="text-binance-subtext" id="result-row-1-label">倉位價值</span>
+                    <span class="font-mono text-white" id="result-row-1-value">0.00 USDT</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-binance-subtext">合約數量</span>
+                    <span class="font-mono text-white" id="btc-quantity">0.0000 BTC</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-binance-subtext">保本價格 (Breakeven)</span>
+                    <span class="font-mono text-binance-yellow font-bold" id="breakeven-price">--</span>
+                </div>
+                <div class="h-px bg-gray-700 my-2"></div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-binance-subtext">預估強平價格 (Est. Liq)</span>
+                    <span class="font-mono text-binance-red font-bold text-lg" id="liq-price">--</span>
+                </div>
+                <div class="text-[10px] text-right text-gray-500" id="liq-info">依據逐倉保證金計算</div>
+            </div>
+        </div>
+
+        <!-- 止盈止損計算區 -->
+        <div class="bg-binance-card p-6 rounded-xl shadow-lg border border-gray-700">
+            <h3 class="text-binance-yellow font-bold mb-4 flex items-center">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                止盈止損 (含手續費淨利)
+            </h3>
+            
+            <!-- 止盈 Take Profit -->
+            <div class="mb-5">
+                <div class="flex justify-between items-end mb-1">
+                    <label class="text-xs text-binance-green">目標止盈 ROE (%)</label>
+                    <div class="text-right">
+                        <div class="text-xs text-binance-subtext mb-0.5">淨獲利: <span id="tp-profit" class="text-binance-green font-bold text-sm">0.00</span> U</div>
+                        <div class="text-[10px] text-gray-500" id="tp-fee-info">手續費: -0.00</div>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="number" id="tp-percent" value="30" class="w-1/3 bg-binance-bg border border-gray-600 rounded p-2 text-center text-binance-green font-bold" oninput="calculateTPSL()">
+                    <span class="text-gray-400 text-sm">➔ 價格:</span>
+                    <div class="flex-1 bg-binance-bg border border-binance-green/30 rounded p-2 text-right font-mono text-xl text-binance-green font-bold" id="tp-price">
+                        --
+                    </div>
+                </div>
+            </div>
+
+            <!-- 止損 Stop Loss -->
+            <div>
+                <div class="flex justify-between items-end mb-1">
+                    <label class="text-xs text-binance-red">最大止損 ROE (%)</label>
+                    <div class="text-right">
+                        <div class="text-xs text-binance-subtext mb-0.5">淨虧損: <span id="sl-loss" class="text-binance-red font-bold text-sm">0.00</span> U</div>
+                        <div class="text-[10px] text-gray-500" id="sl-fee-info">手續費: -0.00</div>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="number" id="sl-percent" value="10" class="w-1/3 bg-binance-bg border border-gray-600 rounded p-2 text-center text-binance-red font-bold" oninput="calculateTPSL()">
+                    <span class="text-gray-400 text-sm">➔ 價格:</span>
+                    <div class="flex-1 bg-binance-bg border border-binance-red/30 rounded p-2 text-right font-mono text-xl text-binance-red font-bold" id="sl-price">
+                        --
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center text-xs text-gray-600 mt-6 pb-4">
+            <p>※ 已扣除開倉與平倉預估手續費 (0.04%)</p>
+            <p>祝您交易順利，天天止盈！🚀</p>
+        </footer>
+
+    </div>
+
+    <script>
+        // 狀態變數
+        let currentDirection = 'long'; // long 或 short
+        let currentMode = 'isolated'; // isolated 或 cross
+        let inputMode = 'margin'; // 'margin' 或 'position'
+
+        // DOM 元素
+        const els = {
+            btnLong: document.getElementById('btn-long'),
+            btnShort: document.getElementById('btn-short'),
+            btnIsolated: document.getElementById('btn-isolated'),
+            btnCross: document.getElementById('btn-cross'),
+            leverage: document.getElementById('leverage'),
+            leverageDisplay: document.getElementById('leverage-display'),
+            entryPrice: document.getElementById('entry-price'),
+            
+            // 輸入區塊
+            inputGroupMargin: document.getElementById('input-group-margin'),
+            inputGroupPosition: document.getElementById('input-group-position'),
+            margin: document.getElementById('margin'),
+            positionInput: document.getElementById('position-input'),
+            
+            walletBalance: document.getElementById('wallet-balance'),
+            walletBalanceContainer: document.getElementById('wallet-balance-container'),
+            feeRate: document.getElementById('fee-rate'),
+            
+            // 結果顯示
+            resultRow1Label: document.getElementById('result-row-1-label'),
+            resultRow1Value: document.getElementById('result-row-1-value'),
+            btcQuantity: document.getElementById('btc-quantity'),
+            liqPrice: document.getElementById('liq-price'),
+            liqInfo: document.getElementById('liq-info'),
+            breakevenPrice: document.getElementById('breakeven-price'),
+            
+            // 止盈止損
+            tpPercent: document.getElementById('tp-percent'),
+            tpPrice: document.getElementById('tp-price'),
+            tpProfit: document.getElementById('tp-profit'),
+            tpFeeInfo: document.getElementById('tp-fee-info'),
+            slPercent: document.getElementById('sl-percent'),
+            slPrice: document.getElementById('sl-price'),
+            slLoss: document.getElementById('sl-loss'),
+            slFeeInfo: document.getElementById('sl-fee-info')
+        };
+
+        // 切換做多/做空
+        function setDirection(dir) {
+            currentDirection = dir;
+            if (dir === 'long') {
+                els.btnLong.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all duration-200 bg-binance-green text-white shadow-md";
+                els.btnShort.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all duration-200 text-binance-subtext hover:text-white bg-transparent";
+            } else {
+                els.btnLong.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all duration-200 text-binance-subtext hover:text-white bg-transparent";
+                els.btnShort.className = "flex-1 py-2 rounded-md text-sm font-bold transition-all duration-200 bg-binance-red text-white shadow-md";
+            }
+            updateCalculation();
+        }
+
+        // 切換倉位模式 (逐倉/全倉)
+        function setMode(mode) {
+            currentMode = mode;
+            if (mode === 'isolated') {
+                els.btnIsolated.className = "px-3 py-1 text-xs rounded mode-btn-active transition-all";
+                els.btnCross.className = "px-3 py-1 text-xs rounded mode-btn-inactive transition-all";
+                els.walletBalanceContainer.classList.add('hidden');
+                els.liqInfo.textContent = "依據逐倉保證金計算";
+            } else {
+                els.btnIsolated.className = "px-3 py-1 text-xs rounded mode-btn-inactive transition-all";
+                els.btnCross.className = "px-3 py-1 text-xs rounded mode-btn-active transition-all";
+                els.walletBalanceContainer.classList.remove('hidden');
+                els.liqInfo.textContent = "依據錢包總餘額計算 (全倉)";
+                
+                // 預設填入邏輯
+                if (inputMode === 'margin' && els.margin.value && !els.walletBalance.value) {
+                    els.walletBalance.value = els.margin.value;
+                }
+            }
+            updateCalculation();
+        }
+
+        // 切換輸入模式 (保證金/倉位價值)
+        function setCalcMode(mode) {
+            inputMode = mode;
+            if (mode === 'margin') {
+                els.inputGroupMargin.classList.remove('hidden');
+                els.inputGroupPosition.classList.add('hidden');
+                els.resultRow1Label.textContent = "倉位價值";
+            } else {
+                els.inputGroupMargin.classList.add('hidden');
+                els.inputGroupPosition.classList.remove('hidden');
+                els.resultRow1Label.textContent = "所需保證金";
+            }
+            updateCalculation();
+        }
+
+        // 格式化數字 (加上千分位)
+        function formatNumber(num, decimals = 2) {
+            return num.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+        }
+
+        // 主計算邏輯
+        function updateCalculation() {
+            const lev = parseFloat(els.leverage.value);
+            const entry = parseFloat(els.entryPrice.value);
+            const feeRatePct = parseFloat(els.feeRate.value) || 0;
+            const feeRate = feeRatePct / 100;
+
+            // 更新槓桿顯示
+            els.leverageDisplay.textContent = `${lev}x`;
+            
+            // 決定 Margin 和 Position Value
+            let margin = 0;
+            let positionValue = 0;
+
+            if (inputMode === 'margin') {
+                // 模式 A：輸入保證金，推算倉位
+                margin = parseFloat(els.margin.value);
+                if (margin) positionValue = margin * lev;
+                
+                // 顯示結果
+                els.resultRow1Value.textContent = positionValue ? `${formatNumber(positionValue)} USDT` : '0.00 USDT';
+            
+            } else {
+                // 模式 B：輸入倉位，推算保證金
+                positionValue = parseFloat(els.positionInput.value);
+                if (positionValue) margin = positionValue / lev;
+                
+                // 顯示結果
+                els.resultRow1Value.textContent = margin ? `${formatNumber(margin)} USDT` : '0.00 USDT';
+            }
+
+            // 若缺必要數值，重置輸出
+            if (!entry || !margin || !positionValue) {
+                resetOutputs();
+                // 即使沒資料也要顯示 label 的預設值
+                if(inputMode === 'margin') els.resultRow1Value.textContent = "0.00 USDT";
+                else els.resultRow1Value.textContent = "0.00 USDT";
+                return;
+            }
+
+            // 計算 BTC 數量
+            const btcQty = positionValue / entry;
+            els.btcQuantity.textContent = `${formatNumber(btcQty, 4)} BTC`;
+
+            // 全倉模式下的錢包餘額處理
+            let walletBal = parseFloat(els.walletBalance.value);
+            if (currentMode === 'cross' && (!walletBal || walletBal < margin)) {
+               walletBal = margin; // 防呆
+            }
+
+            // 計算保本價格 (Breakeven Price)
+            let breakeven = 0;
+            if (currentDirection === 'long') {
+                breakeven = entry * (1 + feeRate) / (1 - feeRate);
+            } else {
+                breakeven = entry * (1 - feeRate) / (1 + feeRate);
+            }
+            els.breakevenPrice.textContent = formatNumber(breakeven);
+
+            // 計算預估強平價格
+            let liq = 0;
+            const mmr = 0.005; // 0.5% 維持保證金率
+            
+            // 決定用於承受虧損的資金
+            const availableFunds = (currentMode === 'cross') ? walletBal : margin;
+
+            // 強平邏輯 (同前)
+            // LiqPrice = Entry +/- (Funds - MaintMargin) / Qty
+            const maintenanceMargin = positionValue * mmr;
+            const priceDiffForLiq = (availableFunds - maintenanceMargin) / btcQty;
+
+            if (currentDirection === 'long') {
+                 liq = entry - priceDiffForLiq;
+            } else {
+                liq = entry + priceDiffForLiq;
+            }
+            
+            if (liq < 0) liq = 0;
+            els.liqPrice.textContent = formatNumber(liq);
+
+            // 觸發止盈止損計算 (需要傳入計算好的 Margin 供計算用)
+            calculateTPSL(margin, positionValue, btcQty);
+        }
+
+        // 計算止盈止損價格 (含淨利計算)
+        function calculateTPSL(margin, positionValue, btcQty) {
+            const entry = parseFloat(els.entryPrice.value);
+            const lev = parseFloat(els.leverage.value);
+            const tpPct = parseFloat(els.tpPercent.value); // ROE %
+            const slPct = parseFloat(els.slPercent.value); // ROE %
+            const feeRatePct = parseFloat(els.feeRate.value) || 0;
+            const feeRate = feeRatePct / 100;
+
+            const openFee = positionValue * feeRate; // 開倉手續費
+
+            // --- 止盈計算 (TP) ---
+            const movementPctTP = (tpPct / 100) / lev;
+            let tpPriceVal;
+            
+            if (currentDirection === 'long') {
+                tpPriceVal = entry * (1 + movementPctTP);
+            } else {
+                tpPriceVal = entry * (1 - movementPctTP);
+            }
+            
+            // TP 手續費 (平倉)
+            const tpCloseValue = btcQty * tpPriceVal;
+            const tpCloseFee = tpCloseValue * feeRate;
+            const totalTpFee = openFee + tpCloseFee;
+
+            // 毛利
+            const grossTpProfit = margin * (tpPct / 100);
+            // 淨利
+            const netTpProfit = grossTpProfit - totalTpFee;
+
+            // --- 止損計算 (SL) ---
+            const movementPctSL = (slPct / 100) / lev;
+            let slPriceVal;
+
+            if (currentDirection === 'long') {
+                slPriceVal = entry * (1 - movementPctSL);
+            } else {
+                slPriceVal = entry * (1 + movementPctSL);
+            }
+
+            // SL 手續費 (平倉)
+            const slCloseValue = btcQty * slPriceVal;
+            const slCloseFee = slCloseValue * feeRate;
+            const totalSlFee = openFee + slCloseFee;
+
+            // 毛損
+            const grossSlLoss = margin * (slPct / 100);
+            const netSlLoss = grossSlLoss + totalSlFee;
+
+            // 更新 UI
+            els.tpProfit.textContent = `+${formatNumber(netTpProfit)}`;
+            els.tpPrice.textContent = formatNumber(tpPriceVal);
+            els.tpFeeInfo.textContent = `總手續費: -${formatNumber(totalTpFee)}`;
+            
+            els.slLoss.textContent = `-${formatNumber(netSlLoss)}`;
+            els.slPrice.textContent = formatNumber(slPriceVal);
+            els.slFeeInfo.textContent = `總手續費: -${formatNumber(totalSlFee)}`;
+        }
+
+        function resetOutputs() {
+            // resultRow1Value 由 updateCalculation 處理
+            els.btcQuantity.textContent = "0.0000 BTC";
+            els.liqPrice.textContent = "--";
+            els.breakevenPrice.textContent = "--";
+            els.tpPrice.textContent = "--";
+            els.slPrice.textContent = "--";
+            els.tpProfit.textContent = "0.00";
+            els.slLoss.textContent = "0.00";
+            els.tpFeeInfo.textContent = "手續費: -0.00";
+            els.slFeeInfo.textContent = "手續費: -0.00";
+        }
+
+        // 初始化
+        updateCalculation();
+
+    </script>
+</body>
+</html>
